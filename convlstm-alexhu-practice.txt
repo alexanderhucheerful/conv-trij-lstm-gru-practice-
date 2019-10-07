@@ -1,0 +1,69 @@
+class convlstmcell(nn.Module):
+    def __init__(self, shape, input_chans, filter_size, num_features):
+        super(convlstmcell,self).__init__()
+        self.shape = shape
+        self.input_channels= input_chans
+        self.filter_size = filter_size
+        self.output_channels = num_features
+        self.padding = int((filter_size -1)//2)
+        self.hidden_channels = num_features
+        self.conv = nn.Conv2d(self.input_channels+self.output_channels,4*self.output_channels,self.filter_size,1,self.padding)
+        self.wci = None
+        self.wcf = None
+        self.wco = None
+
+    def forward(self,input,hidden_state):
+        hidden,c = hidden_state
+        combined = torch.cat((input,hidden),1)
+        temp = self.conv(combined)
+        ii,ff,temp_c,oo = torch.split(temp,self.output_channels,dim=1)
+        i = torch.sigmoid(ii+c*self.wci)
+        f = torch.sigmoid(ff+c*self.wcf)
+        c = f*c+i*torch.tanh(temp_c)
+        o = torch.sigmoid(oo+c*self.wco)
+        h = o*torch.tanh(c)
+        return h,c
+    def init_hidden(self,batch_size):
+        self.wci =Variable(torch.zeros(1, self.hidden_channels, self.shape[0], self.shape[1])).cuda()
+        self.wcf = Variable(torch.zeros(1, self.hidden_channels, self.shape[0], self.shape[1])).cuda()
+        self.wco = Variable(torch.zeros(1, self.hidden_channels, self.shape[0], self.shape[1])).cuda()
+        return (Variable(torch.zeros(batch_size, self.hidden_channels, self.shape[0], self.shape[1])).cuda(),
+                Variable(torch.zeros(batch_size, self.hidden_channels, self.shape[0], self.shape[1])).cuda())
+    
+
+class convlstm(nn.Module):
+    def __init__(self,shape,input_chans,output_chans,filter_size,num_layers):
+        super(convlstm,self).__init__()
+
+        self.shape = shape
+        self.input_channels = input_chans
+        self.output_channels = output_chans
+        self.filter_size = filter_size
+        self.num_layers = num_layers
+        cell_list = []
+        cell_list.append(convlstmcell(self.shape,self.input_channels,self.filter_size,self.output_channels))
+        for idcell in range(1,self.num_layers):
+            cell_list.append(convlstmcell(self.shape, self.input_channels, self.filter_size, self.output_channels).cuda())
+        self.cell_list = nn.ModuleList(cell_list)
+
+    def forward(self,input,hidden_state):
+        current_input = input
+        next_hidden = []
+        seq_len = current_input.size(0)
+        for idlayer in range(self.num_layers):
+            hidden_c = hidden_state[idlayer]
+            all_output = []
+            output_inner = []
+            for t in range(seq_len):
+                hidden_c = self.cell_list[idlayer](current_input[t,...],hidden_c)
+                output_inner.append(hidden_c[0])
+            next_hidden.append(hidden_c)
+            current_input = torch.cat(output_inner, 0).view(current_input.size(0),*output_inner[0].size())
+        return next_hidden, current_input
+
+    def init_hidden(self, batch_size):
+        init_states = []  # this is a list of tuples
+        for i in range(self.num_layers):
+            init_states.append(self.cell_list[i].init_hidden(batch_size))
+        return init_states
+            
