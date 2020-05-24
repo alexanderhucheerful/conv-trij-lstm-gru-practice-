@@ -8,3 +8,4 @@
  - draw meto file: draw_wrfoutprecipitation.py
  - evaluation meto caculate file :evaluation.py
  - shell file : centrestation.sh
+ - oceanhomework :corr of nino index of china precipatation and temp and one scripts is draw sst season variation
